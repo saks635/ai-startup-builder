@@ -42,55 +42,51 @@
     return "text-bg-secondary";
   }
 
-  function setupPdfButtons(job) {
-    var result = job.result || {};
+  function downloadPdf(pdfType) {
     var apiBase = window.ApiClient.getApiBase();
     var token = localStorage.getItem("startup_builder_token");
+    var url = apiBase + "/api/workflow/jobs/" + encodeURIComponent(jobId) + "/pdf/" + pdfType;
 
+    fetch(url, {
+      headers: { "Authorization": "Bearer " + token }
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("PDF not available");
+        return r.blob();
+      })
+      .then(function (blob) {
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = jobId + "_" + pdfType + ".pdf";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      })
+      .catch(function (err) {
+        alert("Could not download " + pdfType + " PDF: " + err.message);
+      });
+  }
+
+  function setupPdfButtons(job) {
     if (job.status === "completed") {
       pdfPending.classList.add("d-none");
 
-      // Analysis PDF
-      if (result.analysis_pdf_path) {
-        analysisPdfBtn.href = apiBase + "/api/workflow/jobs/" + encodeURIComponent(jobId) + "/pdf/analysis";
-        analysisPdfBtn.classList.remove("d-none");
-        analysisPdfBtn.addEventListener("click", function (e) {
-          e.preventDefault();
-          fetch(this.href, {
-            headers: { "Authorization": "Bearer " + token }
-          })
-            .then(function (r) { return r.blob(); })
-            .then(function (blob) {
-              var url = URL.createObjectURL(blob);
-              var a = document.createElement("a");
-              a.href = url;
-              a.download = jobId + "_analysis.pdf";
-              a.click();
-              URL.revokeObjectURL(url);
-            });
-        });
-      }
+      // Always show download buttons for completed jobs
+      analysisPdfBtn.classList.remove("d-none");
+      analysisPdfBtn.style.cursor = "pointer";
+      analysisPdfBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        downloadPdf("analysis");
+      });
 
-      // Pitch Deck PDF
-      if (result.pitch_deck_pdf_path) {
-        pitchDeckPdfBtn.href = apiBase + "/api/workflow/jobs/" + encodeURIComponent(jobId) + "/pdf/pitch-deck";
-        pitchDeckPdfBtn.classList.remove("d-none");
-        pitchDeckPdfBtn.addEventListener("click", function (e) {
-          e.preventDefault();
-          fetch(this.href, {
-            headers: { "Authorization": "Bearer " + token }
-          })
-            .then(function (r) { return r.blob(); })
-            .then(function (blob) {
-              var url = URL.createObjectURL(blob);
-              var a = document.createElement("a");
-              a.href = url;
-              a.download = jobId + "_pitch-deck.pdf";
-              a.click();
-              URL.revokeObjectURL(url);
-            });
-        });
-      }
+      pitchDeckPdfBtn.classList.remove("d-none");
+      pitchDeckPdfBtn.style.cursor = "pointer";
+      pitchDeckPdfBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        downloadPdf("pitch-deck");
+      });
     }
   }
 

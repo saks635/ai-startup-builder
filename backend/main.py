@@ -667,13 +667,20 @@ def download_pdf(
     pdf_type: str,
     current_user: Dict[str, Any] = Depends(_require_current_user),
 ):
-    """Download PDF (analysis or pitch-deck) for a completed job."""
+    """Download PDF (analysis or pitch-deck) for a completed job. Generated on-the-fly."""
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from services.pdf_service import generate_analysis_pdf, generate_pitch_deck_pdf
+
     if pdf_type not in ("analysis", "pitch-deck"):
         raise HTTPException(status_code=400, detail="Invalid PDF type. Use 'analysis' or 'pitch-deck'.")
 
     job = storage.get_job_for_user(job_id, current_user["id"])
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
+
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Job is not completed yet.")
 
     result = job.get("result", {})
     if isinstance(result, str):
@@ -682,18 +689,43 @@ def download_pdf(
         except (json.JSONDecodeError, TypeError):
             result = {}
 
-    path_key = "analysis_pdf_path" if pdf_type == "analysis" else "pitch_deck_pdf_path"
-    pdf_path = result.get(path_key)
+    # Extract data from the stored result
+    startup_name = result.get("workflow_raw", {}).get("startup_name", "Startup") if isinstance(result.get("workflow_raw"), dict) else "Startup"
+    analysis_text = result.get("startup_analysis", "")
+    market_text = result.get("market_insights", "")
+    pitch_deck_text = result.get("pitch_deck", "")
+    action_plan = result.get("action_plan", [])
 
-    if not pdf_path or not os.path.isfile(pdf_path):
-        raise HTTPException(status_code=404, detail=f"{pdf_type.title()} PDF not available.")
+    if not analysis_text and not market_text:
+        raise HTTPException(status_code=404, detail="No analysis data available for this job.")
+
+    try:
+        if pdf_type == "analysis":
+            pdf_bytes = generate_analysis_pdf(
+                startup_name=startup_name,
+                analysis_text=analysis_text or "No analysis available.",
+                market_text=market_text or "No market research available.",
+                action_plan=action_plan or [],
+            )
+        else:
+            if not pitch_deck_text:
+                raise HTTPException(status_code=404, detail="No pitch deck data available for this job.")
+            pdf_bytes = generate_pitch_deck_pdf(
+                startup_name=startup_name,
+                pitch_deck_text=pitch_deck_text,
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(exc)}")
 
     filename = f"{job_id}_{pdf_type}.pdf"
-    return FileResponse(
-        path=pdf_path,
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
         media_type="application/pdf",
-        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
 
 
 @app.get("/api/docs/endpoints")
