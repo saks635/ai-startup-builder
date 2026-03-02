@@ -38,7 +38,7 @@
           </div>
         </div>
 
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm mb-4">
           <div class="card-body">
             <h2 class="h6"><i class="bi bi-link-45deg"></i> Generated Links</h2>
             <ul class="list-unstyled mb-0 small vstack gap-2">
@@ -51,6 +51,24 @@
                 <a id="vercelLink" href="#" target="_blank" rel="noreferrer">-</a>
               </li>
             </ul>
+          </div>
+        </div>
+
+        <!-- PDF Downloads -->
+        <div class="card border-0 shadow-sm" id="pdfCard">
+          <div class="card-body">
+            <h2 class="h6"><i class="bi bi-file-earmark-pdf"></i> PDF Reports</h2>
+            <div class="vstack gap-2">
+              <a id="analysisPdfBtn" href="#" class="btn btn-dark btn-sm d-none" download>
+                <i class="bi bi-download"></i> Analysis Report
+              </a>
+              <a id="pitchDeckPdfBtn" href="#" class="btn btn-dark btn-sm d-none" download>
+                <i class="bi bi-download"></i> Pitch Deck
+              </a>
+              <p id="pdfPending" class="text-secondary small mb-0">
+                <i class="bi bi-hourglass-split"></i> Available after job completes.
+              </p>
+            </div>
           </div>
         </div>
       </aside>
@@ -79,6 +97,13 @@
           <div class="card-body">
             <h2 class="h5 mb-3"><i class="bi bi-globe2"></i> Existing Market Insights</h2>
             <pre id="marketText" class="result-pre mb-0"></pre>
+          </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-body">
+            <h2 class="h5 mb-3"><i class="bi bi-easel"></i> Pitch Deck</h2>
+            <pre id="pitchDeckText" class="result-pre mb-0"></pre>
           </div>
         </div>
 

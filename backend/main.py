@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -221,15 +221,19 @@ def _run_workflow_background(job_id: str) -> None:
             user_github_token=user_github_token,
             user_vercel_token=user_vercel_token,
             user_vercel_team_id=user_vercel_team_id,
+            job_id=job_id,
         )
         result_payload = {
             "startup_analysis": workflow_result.get("analysis_result"),
             "market_insights": workflow_result.get("research_result"),
+            "pitch_deck": workflow_result.get("pitch_deck_result"),
             "action_plan": workflow_result.get("action_plan") or _default_action_plan(job["startup_idea"]),
             "generated_website_files": workflow_result.get("generated_files", []),
             "generated_website_repo": workflow_result.get("repo_url"),
             "github_repository_link": workflow_result.get("repo_url"),
             "vercel_deployment_link": workflow_result.get("live_url"),
+            "analysis_pdf_path": workflow_result.get("analysis_pdf_path"),
+            "pitch_deck_pdf_path": workflow_result.get("pitch_deck_pdf_path"),
             "workflow_raw": workflow_result,
         }
         storage.mark_job_completed(
@@ -655,6 +659,41 @@ def get_job(job_id: str, current_user: Dict[str, Any] = Depends(_require_current
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
     return _serialize_job(job)
+
+
+@app.get("/api/workflow/jobs/{job_id}/pdf/{pdf_type}")
+def download_pdf(
+    job_id: str,
+    pdf_type: str,
+    current_user: Dict[str, Any] = Depends(_require_current_user),
+):
+    """Download PDF (analysis or pitch-deck) for a completed job."""
+    if pdf_type not in ("analysis", "pitch-deck"):
+        raise HTTPException(status_code=400, detail="Invalid PDF type. Use 'analysis' or 'pitch-deck'.")
+
+    job = storage.get_job_for_user(job_id, current_user["id"])
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    result = job.get("result", {})
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+
+    path_key = "analysis_pdf_path" if pdf_type == "analysis" else "pitch_deck_pdf_path"
+    pdf_path = result.get(path_key)
+
+    if not pdf_path or not os.path.isfile(pdf_path):
+        raise HTTPException(status_code=404, detail=f"{pdf_type.title()} PDF not available.")
+
+    filename = f"{job_id}_{pdf_type}.pdf"
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=filename,
+    )
 
 
 @app.get("/api/docs/endpoints")

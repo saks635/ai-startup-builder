@@ -1,7 +1,9 @@
 # workflows/startup_workflow.py
 
+import os
 import re
 import time
+import tempfile
 from typing import Dict
 
 from crewai import Crew
@@ -9,10 +11,12 @@ from litellm.exceptions import RateLimitError
 
 from agents.idea_analyzer import idea_analyzer_agent
 from agents.market_researcher import market_research_agent
-from agents.tasks import idea_analysis_task, market_research_task, website_generation_task
+from agents.pitch_deck_generator import pitch_deck_agent
+from agents.tasks import idea_analysis_task, market_research_task, website_generation_task, pitch_deck_task
 from agents.website_generator import website_generator_agent
 from services.github_service import create_github_repo
 from services.vercel_service import deploy_to_vercel
+from services.pdf_service import generate_analysis_pdf, generate_pitch_deck_pdf
 
 REQUIRED_SITE_FILES = [
     "index.html",
@@ -23,6 +27,10 @@ REQUIRED_SITE_FILES = [
     "script.js",
     "README.md",
 ]
+
+# Directory for generated PDFs
+PDF_OUTPUT_DIR = os.path.join(tempfile.gettempdir(), "ai_startup_builder_pdfs")
+os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
 
 
 def safe_step(agent, task, inputs, retries=2, wait_time=5):
@@ -230,26 +238,59 @@ def _build_website_files(website_raw_output: str, structured_idea: dict) -> Dict
     return fallback_files
 
 
+def _save_pdf(job_id: str, pdf_type: str, pdf_bytes: bytes) -> str:
+    """Save PDF to disk and return the file path."""
+    filename = f"{job_id}_{pdf_type}.pdf"
+    filepath = os.path.join(PDF_OUTPUT_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(pdf_bytes)
+    print(f"[INFO] Saved {pdf_type} PDF: {filepath}")
+    return filepath
+
+
 def run_startup_workflow(
     startup_idea: str,
     user_github_token: str = None,
     user_vercel_token: str = None,
     user_vercel_team_id: str = None,
+    job_id: str = None,
 ):
-    """Main workflow for generating idea analysis, market research, and website."""
+    """Main workflow for generating idea analysis, market research, pitch deck, and website."""
     print("\n[INFO] Starting startup workflow...\n")
     structured_idea = preprocess_idea(startup_idea)
+    startup_name = structured_idea.get("startup_name", "Startup")
+
+    # Step 1: Idea Analysis
     print("[INFO] Running idea analysis...")
     analysis_result = safe_step(idea_analyzer_agent, idea_analysis_task, {"startup_idea": structured_idea})
+    analysis_text = _extract_raw_text(analysis_result)
+
+    # Step 2: Market Research
     print("[INFO] Running market research...")
     research_result = safe_step(market_research_agent, market_research_task, {"startup_idea": structured_idea})
+    market_text = _extract_raw_text(research_result)
+
+    # Step 3: Pitch Deck Generation
+    print("[INFO] Generating pitch deck...")
+    pitch_deck_text = ""
+    try:
+        pitch_deck_result = safe_step(
+            pitch_deck_agent,
+            pitch_deck_task,
+            {"startup_idea": structured_idea, "analysis": analysis_text, "research": market_text},
+        )
+        pitch_deck_text = _extract_raw_text(pitch_deck_result)
+    except Exception as e:
+        print(f"[WARN] Pitch deck generation failed: {e}")
+
+    # Step 4: Website Generation
     print("[INFO] Generating website...")
     website_raw_output = ""
     try:
         website_result = safe_step(
             website_generator_agent,
             website_generation_task,
-            {"startup_idea": structured_idea, "analysis": str(analysis_result), "research": str(research_result)},
+            {"startup_idea": structured_idea, "analysis": analysis_text, "research": market_text},
         )
         website_raw_output = _extract_raw_text(website_result)
     except Exception as e:
@@ -260,6 +301,36 @@ def run_startup_workflow(
     if missing_files:
         print(f"[WARN] Missing required files after normalization: {missing_files}")
 
+    # Step 5: Generate PDFs
+    print("[INFO] Generating PDF reports...")
+    action_plan = _recommended_action_plan(structured_idea)
+    pdf_job_id = job_id or "unknown"
+
+    analysis_pdf_path = None
+    pitch_deck_pdf_path = None
+
+    try:
+        analysis_pdf_bytes = generate_analysis_pdf(
+            startup_name=startup_name,
+            analysis_text=analysis_text,
+            market_text=market_text,
+            action_plan=action_plan,
+        )
+        analysis_pdf_path = _save_pdf(pdf_job_id, "analysis", analysis_pdf_bytes)
+    except Exception as e:
+        print(f"[WARN] Analysis PDF generation failed: {e}")
+
+    if pitch_deck_text:
+        try:
+            pitch_deck_pdf_bytes = generate_pitch_deck_pdf(
+                startup_name=startup_name,
+                pitch_deck_text=pitch_deck_text,
+            )
+            pitch_deck_pdf_path = _save_pdf(pdf_job_id, "pitch-deck", pitch_deck_pdf_bytes)
+        except Exception as e:
+            print(f"[WARN] Pitch deck PDF generation failed: {e}")
+
+    # Step 6: GitHub Repo
     repo_name = re.sub(r"[^a-zA-Z0-9]+", "-", structured_idea["startup_name"].lower()).strip("-")
     repo_url = None
     repo_id = None
@@ -275,6 +346,7 @@ def run_startup_workflow(
     except Exception as e:
         print("\n[ERROR] GitHub repo creation failed:", e)
 
+    # Step 7: Vercel Deployment
     live_url = None
     if repo_id:
         try:
@@ -289,11 +361,14 @@ def run_startup_workflow(
             print("\n[ERROR] Vercel deployment failed:", e)
 
     return {
-        "analysis_result": str(analysis_result),
-        "research_result": str(research_result),
+        "analysis_result": analysis_text,
+        "research_result": market_text,
+        "pitch_deck_result": pitch_deck_text,
         "repo_url": repo_url,
         "live_url": live_url,
         "generated_files": sorted(list(website_files.keys())),
-        "action_plan": _recommended_action_plan(structured_idea),
-        "startup_name": structured_idea.get("startup_name"),
+        "action_plan": action_plan,
+        "startup_name": startup_name,
+        "analysis_pdf_path": analysis_pdf_path,
+        "pitch_deck_pdf_path": pitch_deck_pdf_path,
     }
