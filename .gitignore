@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Logs and runtime artifacts
+*.log
+backend_server.log
+backend_server.err.log
+frontend_server.log
+frontend_server.err.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
